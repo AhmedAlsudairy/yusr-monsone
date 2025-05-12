@@ -10,9 +10,36 @@ interface GateControlProps {
   data: MonitoringData | null;
 }
 
+// Define types for the debug information
+interface DebugInfo {
+  componentData?: MonitoringData | null;
+  lastAction?: {
+    type: string;
+    timestamp: Date;
+    requestParams: {
+      new_state: boolean;
+      override_reason: string;
+    };
+  };
+  lastError?: {
+    message: string;
+    code?: string;
+    details?: string;
+    timestamp: Date;
+  };
+  lastSuccess?: {
+    data: unknown;
+    timestamp: Date;
+    duration: string;
+  };
+  requestDuration?: number;
+  operationCompleted?: boolean;
+  totalDuration?: string;
+}
+
 export function GateControl({ data }: GateControlProps) {
   const [isUpdating, setIsUpdating] = useState(false)
-  const [debugInfo, setDebugInfo] = useState<any>({})
+  const [debugInfo, setDebugInfo] = useState<DebugInfo>({})
   const [error, setError] = useState<string | null>(null)
   const [lastRequestTime, setLastRequestTime] = useState<Date | null>(null)
   const [requestCount, setRequestCount] = useState(0)
@@ -22,18 +49,18 @@ export function GateControl({ data }: GateControlProps) {
   // Log component props on mount and when data changes
   useEffect(() => {
     console.log('GateControl component data:', data)
-    setDebugInfo(prev => ({ ...prev, componentData: data }))
+    setDebugInfo((prev: DebugInfo) => ({ ...prev, componentData: data }))
   }, [data])
 
   const updateGateStatus = async (shouldClose: boolean) => {
     const startTime = new Date()
     setLastRequestTime(startTime)
-    setRequestCount(prev => prev + 1)
+    setRequestCount((prev: number) => prev + 1)
     setIsUpdating(true)
     setError(null)
     
     console.log(`[GateControl] Attempting to ${shouldClose ? 'close' : 'open'} gate`)
-    setDebugInfo(prev => ({ 
+    setDebugInfo((prev: DebugInfo) => ({ 
       ...prev, 
       lastAction: { 
         type: shouldClose ? 'close' : 'open', 
@@ -58,7 +85,7 @@ export function GateControl({ data }: GateControlProps) {
       if (error) {
         console.error('[GateControl] RPC error:', error)
         setError(`Error: ${error.message || 'Unknown error'}`)
-        setDebugInfo(prev => ({ 
+        setDebugInfo((prev: DebugInfo) => ({ 
           ...prev, 
           lastError: { 
             message: error.message, 
@@ -72,7 +99,7 @@ export function GateControl({ data }: GateControlProps) {
       }
       
       console.log('[GateControl] RPC success:', data)
-      setDebugInfo(prev => ({ 
+      setDebugInfo((prev: DebugInfo) => ({ 
         ...prev, 
         lastSuccess: { 
           data, 
@@ -81,14 +108,15 @@ export function GateControl({ data }: GateControlProps) {
         } 
       }))
       
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('[GateControl] Caught error:', error)
-      setError(`Error: ${error?.message || 'Unknown error'}`)
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      setError(`Error: ${errorMessage}`)
     } finally {
       const finalTime = new Date()
       const totalDuration = finalTime.getTime() - startTime.getTime()
       console.log(`[GateControl] Operation completed in ${totalDuration}ms`)
-      setDebugInfo(prev => ({ 
+      setDebugInfo((prev: DebugInfo) => ({ 
         ...prev, 
         operationCompleted: true,
         totalDuration: `${totalDuration}ms` 
