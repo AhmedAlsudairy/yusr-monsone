@@ -1,5 +1,4 @@
 'use client'
-
 import { useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -21,7 +20,6 @@ export function GateControl({ data }: GateControlProps) {
         new_state: shouldClose,
         override_reason: shouldClose ? 'Manual close via UI' : 'Manual open via UI'
       })
-
       if (error) throw error
     } catch (error) {
       console.error('Error updating gate status:', error)
@@ -34,40 +32,44 @@ export function GateControl({ data }: GateControlProps) {
     // Since gate status comes from database, we need to query it
     // For now, showing based on water status
     if (!data?.water_status) return 'UNKNOWN';
-    
     return ['WARNING', 'DANGER'].includes(data.water_status) ? 'CLOSED' : 'OPEN';
   }
 
   return (
-    <Card>
+    <Card className="mb-4">
       <CardContent className="pt-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-slate-900">🚪 Gate Control</h2>
-          <span className="text-sm font-medium">Current: {getCurrentGateStatus()}</span>
+        <div className="flex flex-col space-y-4">
+          <h2 className="text-xl font-semibold flex items-center gap-2">
+            🚪 Gate Control
+          </h2>
+          
+          <div className="text-lg font-medium">
+            Current: {getCurrentGateStatus()}
+          </div>
+          
+          <div className="flex gap-2">
+            <Button 
+              onClick={() => updateGateStatus(false)}
+              disabled={isUpdating}
+              variant="outline"
+            >
+              Open Gate
+            </Button>
+            
+            <Button
+              onClick={() => updateGateStatus(true)}
+              disabled={isUpdating}
+            >
+              Close Gate
+            </Button>
+          </div>
+          
+          {data?.created_at && (
+            <div className="text-sm text-muted-foreground">
+              Last updated: {new Date(data.created_at).toLocaleTimeString()}
+            </div>
+          )}
         </div>
-        <div className="flex gap-3">
-          <Button 
-            className="flex-1" 
-            variant="outline"
-            onClick={() => updateGateStatus(false)}
-            disabled={isUpdating}
-          >
-            Open Gate
-          </Button>
-          <Button 
-            className="flex-1" 
-            variant="destructive"
-            onClick={() => updateGateStatus(true)}
-            disabled={isUpdating}
-          >
-            Close Gate
-          </Button>
-        </div>
-        {data?.created_at && (
-          <p className="text-sm text-slate-600 mt-3">
-            Last updated: {new Date(data.created_at).toLocaleTimeString()}
-          </p>
-        )}
       </CardContent>
     </Card>
   )
