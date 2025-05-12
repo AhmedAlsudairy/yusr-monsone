@@ -1,5 +1,4 @@
 'use client'
-import { useState, useEffect } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
@@ -35,6 +34,19 @@ interface DebugInfo {
   requestDuration?: number;
   operationCompleted?: boolean;
   totalDuration?: string;
+  gateStatus?: {
+    should_close: boolean;
+    reason: string;
+    updated_by: string;
+    updated_at: string;
+  };
+}
+
+interface GateStatus {
+  should_close: boolean;
+  reason: string;
+  updated_by: string;
+  updated_at: string;
 }
 
 export function GateControl({ data }: GateControlProps) {
@@ -44,12 +56,44 @@ export function GateControl({ data }: GateControlProps) {
   const [lastRequestTime, setLastRequestTime] = useState<Date | null>(null)
   const [requestCount, setRequestCount] = useState(0)
   const [showDebug, setShowDebug] = useState(true)
+  const [gateStatus, setGateStatus] = useState<GateStatus | null>(null)
   const supabase = createClientComponentClient()
+
+  // Fetch actual gate status from database
+  const fetchGateStatus = async () => {
+    try {
+      console.log('[GateControl] Fetching current gate status from database')
+      const { data: gateData, error } = await supabase.rpc('get_current_gate_status')
+      
+      if (error) {
+        console.error('[GateControl] Error fetching gate status:', error)
+        return null
+      }
+      
+      if (gateData && gateData.length > 0) {
+        console.log('[GateControl] Gate status fetched:', gateData[0])
+        setGateStatus(gateData[0])
+        setDebugInfo((prev: DebugInfo) => ({ 
+          ...prev, 
+          gateStatus: gateData[0] 
+        }))
+        return gateData[0]
+      }
+      
+      return null
+    } catch (error) {
+      console.error('[GateControl] Error in fetchGateStatus:', error)
+      return null
+    }
+  }
 
   // Log component props on mount and when data changes
   useEffect(() => {
     console.log('GateControl component data:', data)
     setDebugInfo((prev: DebugInfo) => ({ ...prev, componentData: data }))
+    
+    // Fetch gate status on mount
+    fetchGateStatus()
   }, [data])
 
   const updateGateStatus = async (shouldClose: boolean) => {
@@ -108,6 +152,14 @@ export function GateControl({ data }: GateControlProps) {
         } 
       }))
       
+      // Update local gate status after successful update
+      if (data) {
+        setGateStatus(data)
+      }
+      
+      // Fetch the latest status from the database to ensure UI is in sync
+      await fetchGateStatus()
+      
     } catch (error: unknown) {
       console.error('[GateControl] Caught error:', error)
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
@@ -126,15 +178,21 @@ export function GateControl({ data }: GateControlProps) {
   }
 
   const getCurrentGateStatus = () => {
-    // Since gate status comes from database, we need to query it
-    // For now, showing based on water status
+    // First check if we have actual gate status from database
+    if (gateStatus) {
+      const actualStatus = gateStatus.should_close ? 'CLOSED' : 'OPEN'
+      console.log(`[GateControl] Using actual gate status from database: ${actualStatus}`, gateStatus)
+      return actualStatus
+    }
+    
+    // Fallback to inferring from water status if no gate status available
     if (!data?.water_status) return 'UNKNOWN';
-    const status = ['WARNING', 'DANGER'].includes(data.water_status) ? 'CLOSED' : 'OPEN';
-    console.log(`[GateControl] Current gate status determined as: ${status}`, {
+    const inferredStatus = ['WARNING', 'DANGER'].includes(data.water_status) ? 'CLOSED' : 'OPEN';
+    console.log(`[GateControl] Using inferred gate status: ${inferredStatus}`, {
       water_status: data.water_status,
       data: data
     });
-    return status;
+    return inferredStatus;
   }
 
   return (
@@ -158,6 +216,11 @@ export function GateControl({ data }: GateControlProps) {
             Current: <span className={`font-bold ${getCurrentGateStatus() === 'CLOSED' ? 'text-red-500' : 'text-green-500'}`}>
               {getCurrentGateStatus()}
             </span>
+            {gateStatus && (
+              <div className="text-sm text-muted-foreground mt-1">
+                Reason: {gateStatus.reason}
+              </div>
+            )}
           </div>
           
           {error && (
@@ -169,7 +232,7 @@ export function GateControl({ data }: GateControlProps) {
           <div className="flex gap-2">
             <Button 
               onClick={() => updateGateStatus(false)}
-              disabled={isUpdating}
+              disabled={isUpdating || (!!gateStatus && !gateStatus.should_close)}
               variant="outline"
               className="relative"
             >
@@ -179,17 +242,34 @@ export function GateControl({ data }: GateControlProps) {
             
             <Button
               onClick={() => updateGateStatus(true)}
-              disabled={isUpdating}
+              disabled={isUpdating || (!!gateStatus && gateStatus.should_close)}
               className="relative"
             >
               {isUpdating ? 'Processing...' : 'Close Gate'}
               {isUpdating && <span className="absolute inset-0 flex items-center justify-center">⏳</span>}
+            </Button>
+            
+            <Button
+              onClick={fetchGateStatus}
+              variant="secondary"
+              size="icon"
+              className="ml-2"
+              title="Refresh gate status"
+            >
+              🔄
             </Button>
           </div>
           
           {data?.created_at && (
             <div className="text-sm text-muted-foreground">
               Last updated: {new Date(data.created_at).toLocaleTimeString()}
+            </div>
+          )}
+          
+          {gateStatus?.updated_at && (
+            <div className="text-sm text-muted-foreground">
+              Gate status last updated: {new Date(gateStatus.updated_at).toLocaleTimeString()}
+              {gateStatus.updated_by && ` by ${gateStatus.updated_by}`}
             </div>
           )}
 
@@ -199,7 +279,8 @@ export function GateControl({ data }: GateControlProps) {
               <div>
                 <p>⏱️ Requests: {requestCount}</p>
                 <p>⏰ Last Request: {lastRequestTime?.toLocaleTimeString() || 'N/A'}</p>
-                <p>🔄 Gate Status Logic: {data?.water_status ? `Water status is "${data.water_status}" => Gate should be "${getCurrentGateStatus()}"` : 'No water data'}</p>
+                <p>🔄 Gate Status from DB: {gateStatus ? (gateStatus.should_close ? 'CLOSED' : 'OPEN') : 'Not fetched'}</p>
+                <p>🚪 Gate Should Be: {data?.water_status ? `Water status is "${data.water_status}" => Gate should be "${['WARNING', 'DANGER'].includes(data.water_status) ? 'CLOSED' : 'OPEN'}"` : 'No water data'}</p>
                 <p>🔌 Updating: {isUpdating ? 'YES' : 'NO'}</p>
                 {error && <p className="text-red-500">🚨 Error: {error}</p>}
                 <p>📦 Data received: {data ? 'YES' : 'NO'}</p>
